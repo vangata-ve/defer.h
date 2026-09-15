@@ -1,0 +1,129 @@
+# `defer.h`
+
+A simple single-header library which adds a defer block to C, similar to Go's defer statement matching proposal [N3199 - Improved `__attribute__((cleanup))` Through `defer`](https://open-std.org/JTC1/SC22/WG14/www/docs/n3199.htm)
+
+## Overview
+
+This library provides syntactic sugar over GCC's cleanup attribute, which
+automatically runs a cleanup function when a scope is exited.
+
+Any code placed inside a `defer` block is executed automatically when the
+scope is exited, whether by normal fall-through, early return, or a `goto` that skips past it.
+
+Multiple `defer` blocks in the same scope execute in reverse order (LIFO),
+matching Go's semantics.
+
+Behind the scenes the macro expands into a GCC nested function attached to a
+dummy variable via `__attribute__((cleanup))`, so the cleanup is emitted at
+compile time with no runtime registration, no heap allocation, and no library
+to link against.
+
+## Supported Platforms
+
+This code uses GCC's nested functions extension, the `cleanup` attribute,
+`unused` attribute, and the non-standard `__COUNTER__` macro.
+
+- GCC >= 3.x
+- Clang: Unsupported ([#9578 Clang does not support gcc-style nested functions](https://github.com/llvm/llvm-project/issues/9578))
+- MSVC: Unsupported
+
+## Example
+
+```c
+#include <stdio.h>
+#include "defer.h"
+
+int main(void)
+{
+    printf("Hello, World!\n");
+
+    defer { printf("defer #1\n"); }
+    defer { printf("defer #2\n"); }
+    defer { printf("defer #3\n"); }
+
+    printf("Goodbye, World!\n");
+
+    return 0;
+}
+```
+
+Output:
+
+```
+Hello, World!
+Goodbye, World!
+defer #3
+defer #2
+defer #1
+```
+
+## Syntax
+
+```ebnf
+defer-block:
+              defer deferred-block ;
+
+deferred-block:
+              compound-statement
+```
+
+## FAQ
+
+<details>
+<summary>Is this usable <s>in production</s> at all?</summary>
+
+Technically? Yes.
+Should you? Hell no.
+
+</details>
+
+<details>
+<summary>Why not just use <code>goto cleanup;</code>?</summary>
+
+You absolutely can and should and currently is the idiomatic C pattern.
+`defer.h` exists out of pure ~~curiosity~~ stupidity.
+
+</details>
+
+<details>
+<summary>Can I use this in C++?</summary>
+
+You can't and shouldn't. C++ already has RAII and destructors, which do the same thing, are
+blessed by the standard, and don't require GNU extensions.
+</details>
+
+<details>
+<summary>Can I <code>return</code> / <code>break</code> inside a defer block?</summary>
+
+The defer body is a nested function, so `return` returns from *the nested
+function*, not from your enclosing function. `break` and `continue` won't
+reach an outer loop. Treat the block as a small, self-contained cleanup
+routine.
+
+</details>
+
+<details>
+<summary>What happens if I <code>longjmp</code> past a <code>defer</code>?</summary>
+
+The cleanup does **not** run. `longjmp` unwinds the stack without destroying
+variables, so the `cleanup` attribute is never triggered. If you are mixing
+`longjmp` and `defer`, you have bigger problems than this library.
+
+</details>
+
+<details>
+<summary>Why not support Clang via Objective-C blocks?</summary>
+
+Clang supports blocks (`^(){}`) which are essentially lambdas and could serve
+as a replacement for GCC's nested functions. In practice this is cursed because:
+
+- Requires compiling with `-fblocks`.
+- Drags in `libBlocksRuntime` as a link-time dependency.
+- The syntax is Objective-C bolted onto C.
+
+</details>
+
+## License
+
+This is free and unencumbered software released into the public domain under
+the [Unlicense](https://unlicense.org/).
